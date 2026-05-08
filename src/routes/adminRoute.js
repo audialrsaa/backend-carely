@@ -1,0 +1,38 @@
+import express from "express";
+import {
+  getDashboardStats,
+  getAdminDashboard,
+  getAllUsers,
+  getAllAdmins,
+  createAdmin,
+  updateAdmin,
+  deleteAdmin,
+  resetAdminPassword,
+  deleteUser,
+  getAuditLogs,
+  getActivityLogs,
+} from "../controllers/adminController.js";
+import { verifyToken, allowRoles } from "../middleware/auth.js";
+
+const router = express.Router();
+
+// Dashboard
+router.get("/dashboard", verifyToken, allowRoles("admin", "superadmin"), getAdminDashboard);
+router.get("/dashboard/super", verifyToken, allowRoles("superadmin"), getDashboardStats);
+
+// User management
+router.get("/users", verifyToken, allowRoles("superadmin"), getAllUsers);
+router.delete("/users/:id", verifyToken, allowRoles("superadmin"), deleteUser);
+
+// Admin management
+router.get("/admins", verifyToken, allowRoles("superadmin"), getAllAdmins);
+router.post("/admins", verifyToken, allowRoles("superadmin"), createAdmin);
+router.put("/admins/:id", verifyToken, allowRoles("superadmin"), updateAdmin);
+router.delete("/admins/:id", verifyToken, allowRoles("superadmin"), deleteAdmin);
+router.put("/admins/:id/reset-password", verifyToken, allowRoles("superadmin"), resetAdminPassword);
+
+// Logs
+router.get("/audit-logs", verifyToken, allowRoles("superadmin"), getAuditLogs);
+router.get("/activity-logs", verifyToken, allowRoles("superadmin"), getActivityLogs);
+
+export default router;
