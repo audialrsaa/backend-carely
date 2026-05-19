@@ -12,6 +12,7 @@ import {
   updateReportStatus,
   setReportPriority,
   getCategories,
+  deleteReport
 } from "../controllers/reportController.js";
 import { verifyToken, allowRoles } from "../middleware/auth.js";
 
@@ -71,6 +72,8 @@ router.put(
   allowRoles("admin", "superadmin"),
   updateReportStatus
 );
+
+router.delete("/:id", verifyToken, deleteReport);
 
 // =========================
 // SUPERADMIN ONLY

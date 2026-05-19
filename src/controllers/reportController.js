@@ -2,24 +2,18 @@ import db from "../config/db.js";
 import { supabase } from "../config/supabase.js";
 
 // ============================================================
-// USER: Buat laporan baru + upload foto ke Supabase (MemoryStorage)
+// USER: Buat laporan baru + upload foto ke Supabase
 // ============================================================
 export const createReport = async (req, res) => {
-  const { category_id, title, description, incident_location, incident_date } =
-    req.body;
+  const { title, description, incident_location, incident_date } = req.body;
 
   const user_id = req.user.id;
   let bukti_foto = null;
 
-  // =========================
-  // Upload foto ke Supabase
-  // =========================
   if (req.file) {
     try {
       const fileExt = req.file.originalname.split(".").pop();
       const fileName = `report-${user_id}-${Date.now()}.${fileExt}`;
-
-      // Karena pakai memoryStorage => gunakan req.file.buffer
       const fileBuffer = req.file.buffer;
 
       const { error: uploadError } = await supabase.storage
@@ -30,22 +24,18 @@ export const createReport = async (req, res) => {
         });
 
       if (uploadError) {
-        console.error("Supabase Upload Error:", uploadError);
         return res.status(500).json({
           message: "Gagal upload foto ke Supabase",
           error: uploadError.message,
         });
       }
 
-      // Ambil public URL
       const {
         data: { publicUrl },
       } = supabase.storage.from("report-images").getPublicUrl(fileName);
 
-      // Simpan URL Supabase ke DB
       bukti_foto = publicUrl;
     } catch (err) {
-      console.error("Upload Foto Error:", err);
       return res.status(500).json({
         message: "Terjadi kesalahan saat upload foto",
         error: err.message,
@@ -53,27 +43,13 @@ export const createReport = async (req, res) => {
     }
   }
 
-  // =========================
-  // Simpan laporan ke database
-  // =========================
   const [result] = await db.query(
     `INSERT INTO reports 
-     (user_id, category_id, title, description, bukti_foto, incident_location, incident_date) 
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
-      user_id,
-      category_id,
-      title,
-      description,
-      bukti_foto,
-      incident_location,
-      incident_date,
-    ]
+     (user_id, title, description, bukti_foto, incident_location, incident_date) 
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [user_id, title, description, bukti_foto, incident_location, incident_date]
   );
 
-  // =========================
-  // Log status awal
-  // =========================
   await db.query(
     `INSERT INTO report_status_logs 
      (report_id, old_status, new_status, changed_by, changer_role, notes)
@@ -89,7 +65,7 @@ export const createReport = async (req, res) => {
 };
 
 // ============================================================
-// USER: Lihat laporan milik sendiri
+// USER: Lihat laporan sendiri
 // ============================================================
 export const getMyReports = async (req, res) => {
   const [rows] = await db.query(
@@ -119,9 +95,7 @@ export const getMyReportDetail = async (req, res) => {
   );
 
   if (report.length === 0) {
-    return res.status(404).json({
-      message: "Laporan tidak ditemukan",
-    });
+    return res.status(404).json({ message: "Laporan tidak ditemukan" });
   }
 
   const [logs] = await db.query(
@@ -140,7 +114,7 @@ export const getMyReportDetail = async (req, res) => {
 };
 
 // ============================================================
-// ADMIN + SUPERADMIN: Lihat semua laporan
+// ADMIN: All reports
 // ============================================================
 export const getAllReports = async (req, res) => {
   const { status, category_id, priority, date_from, date_to } = req.query;
@@ -184,12 +158,11 @@ export const getAllReports = async (req, res) => {
   query += " ORDER BY r.created_at DESC";
 
   const [rows] = await db.query(query, params);
-
   res.json(rows);
 };
 
 // ============================================================
-// ADMIN + SUPERADMIN: Detail laporan
+// ADMIN: Detail report
 // ============================================================
 export const getReportDetail = async (req, res) => {
   const { id } = req.params;
@@ -207,9 +180,7 @@ export const getReportDetail = async (req, res) => {
   );
 
   if (report.length === 0) {
-    return res.status(404).json({
-      message: "Laporan tidak ditemukan",
-    });
+    return res.status(404).json({ message: "Laporan tidak ditemukan" });
   }
 
   const [logs] = await db.query(
@@ -228,30 +199,51 @@ export const getReportDetail = async (req, res) => {
 };
 
 // ============================================================
-// ADMIN + SUPERADMIN: Update status laporan
+// ADMIN: Update status + CATEGORY TRACKING (FIX HERE)
 // ============================================================
 export const updateReportStatus = async (req, res) => {
   const { id } = req.params;
-  const { new_status, notes, rejection_reason, admin_notes } = req.body;
+
+  const {
+    new_status,
+    notes,
+    rejection_reason,
+    admin_notes,
+    category_id,
+  } = req.body;
 
   const changed_by = req.user.id;
   const changer_role = req.user.role;
 
+  // 🔥 ambil data lama
   const [current] = await db.query(
-    "SELECT status, user_id, title FROM reports WHERE id = ?",
+    "SELECT status, category_id FROM reports WHERE id = ?",
     [id]
   );
 
   if (current.length === 0) {
-    return res.status(404).json({
-      message: "Laporan tidak ditemukan",
-    });
+    return res.status(404).json({ message: "Laporan tidak ditemukan" });
   }
 
   const old_status = current[0].status;
+  const old_category = current[0].category_id;
 
-  let updateQuery = "UPDATE reports SET status = ?, updated_at = NOW()";
+  // update query
+  let updateQuery =
+    "UPDATE reports SET status = ?, updated_at = NOW()";
+
   const updateParams = [new_status];
+
+  let categoryChangedText = "";
+
+  if (category_id !== undefined) {
+    updateQuery += ", category_id = ?";
+    updateParams.push(category_id);
+
+    if (category_id !== old_category) {
+      categoryChangedText = ` | kategori berubah dari ${old_category} → ${category_id}`;
+    }
+  }
 
   if (rejection_reason !== undefined) {
     updateQuery += ", rejection_reason = ?";
@@ -268,14 +260,16 @@ export const updateReportStatus = async (req, res) => {
 
   await db.query(updateQuery, updateParams);
 
-  // Log perubahan status
+  // 🔥 LOG STATUS + CATEGORY
+  const finalNotes =
+    (notes || "") + categoryChangedText || null;
+
   await db.query(
     `INSERT INTO report_status_logs
      (report_id, old_status, new_status, changed_by, changer_role, notes)
      VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, old_status, new_status, changed_by, changer_role, notes || null]
+    [id, old_status, new_status, changed_by, changer_role, finalNotes]
   );
-
 
   res.json({
     message: "Status laporan berhasil diperbarui",
@@ -283,18 +277,16 @@ export const updateReportStatus = async (req, res) => {
 };
 
 // ============================================================
-// SUPERADMIN: Set prioritas laporan
+// PRIORITY
 // ============================================================
 export const setReportPriority = async (req, res) => {
   const { id } = req.params;
   const { priority } = req.body;
 
-  const validPriorities = ["low", "medium", "high", "emergency"];
+  const valid = ["low", "medium", "high", "emergency"];
 
-  if (!validPriorities.includes(priority)) {
-    return res.status(400).json({
-      message: "Prioritas tidak valid",
-    });
+  if (!valid.includes(priority)) {
+    return res.status(400).json({ message: "Prioritas tidak valid" });
   }
 
   await db.query("UPDATE reports SET priority = ? WHERE id = ?", [
@@ -302,15 +294,25 @@ export const setReportPriority = async (req, res) => {
     id,
   ]);
 
-  res.json({
-    message: "Prioritas berhasil diubah",
-  });
+  res.json({ message: "Prioritas berhasil diubah" });
 };
 
 // ============================================================
-// GET semua kategori
+// CATEGORY
 // ============================================================
 export const getCategories = async (req, res) => {
   const [rows] = await db.query("SELECT * FROM categories");
   res.json(rows);
+};
+
+// ============================================================
+// DELETE
+// ============================================================
+export const deleteReport = async (req, res) => {
+  const { id } = req.params;
+
+  await db.query("DELETE FROM report_status_logs WHERE report_id = ?", [id]);
+  await db.query("DELETE FROM reports WHERE id = ?", [id]);
+
+  res.json({ message: "Laporan berhasil dihapus" });
 };
