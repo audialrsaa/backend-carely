@@ -66,20 +66,56 @@ export const getAllAdmins = async (req, res) => {
 
 // SUPERADMIN: Buat admin baru
 export const createAdmin = async (req, res) => {
-  const { full_name, email, password, phone } = req.body;
+  try {
+    const { full_name, email, password, phone } = req.body;
 
-  const [existing] = await db.query("SELECT id FROM users WHERE email = ?", [email]);
-  if (existing.length > 0) {
-    return res.status(400).json({ message: "Email sudah digunakan" });
+    // VALIDASI
+    if (
+      !full_name?.trim() ||
+      !email?.trim() ||
+      !password?.trim()
+    ) {
+      return res.status(400).json({
+        message: "Semua field wajib diisi",
+      });
+    }
+
+    const [existing] = await db.query(
+      "SELECT id FROM users WHERE email = ?",
+      [email]
+    );
+
+    if (existing.length > 0) {
+      return res.status(400).json({
+        message: "Email sudah digunakan",
+      });
+    }
+
+    const hashed = await bcrypt.hash(password, 10);
+
+    await db.query(
+      `INSERT INTO users 
+      (full_name, email, password, phone, role) 
+      VALUES (?, ?, ?, ?, ?)`,
+      [
+        full_name,
+        email,
+        hashed,
+        phone || null,
+        "admin",
+      ]
+    );
+
+    res.status(201).json({
+      message: "Admin berhasil dibuat",
+    });
+  } catch (err) {
+    console.error(err);
+
+    res.status(500).json({
+      message: "Server error",
+    });
   }
-
-  const hashed = await bcrypt.hash(password, 10);
-  await db.query(
-    "INSERT INTO users (full_name, email, password, phone, role) VALUES (?, ?, ?, ?, ?)",
-    [full_name, email, hashed, phone || null, "admin"]
-  );
-
-  res.status(201).json({ message: "Admin berhasil dibuat" });
 };
 
 // SUPERADMIN: Edit admin

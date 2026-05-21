@@ -29,7 +29,6 @@ export const getCommentsByReport = async (req, res) => {
       `SELECT 
           rc.id,
           rc.comment,
-          rc.comment_type,
           rc.created_at,
           rc.updated_at,
           u.id as user_id,
@@ -98,8 +97,8 @@ export const addComment = async (req, res) => {
 
     await db.query(
       `INSERT INTO report_comments 
-       (report_id, user_id, comment, comment_type)
-       VALUES (?, ?, ?, 'message')`,
+       (report_id, user_id, comment)
+       VALUES (?, ?, ?)`,
       [id, user.id, comment]
     );
 
