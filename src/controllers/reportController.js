@@ -316,3 +316,99 @@ export const deleteReport = async (req, res) => {
 
   res.json({ message: "Laporan berhasil dihapus" });
 };
+
+// USER EDIT LAPORAN
+// USER EDIT LAPORAN (dengan support ganti/hapus foto)
+export const updateMyReport = async (req, res) => {
+  const { id } = req.params;
+  const { title, description, incident_location, incident_date, remove_foto } = req.body;
+
+  const [report] = await db.query(
+    `SELECT * FROM reports WHERE id = ? AND user_id = ?`,
+    [id, req.user.id]
+  );
+
+  if (report.length === 0) {
+    return res.status(404).json({ message: "Laporan tidak ditemukan" });
+  }
+
+  if (report[0].status !== "pending") {
+    return res.status(403).json({ message: "Laporan yang sudah diproses tidak dapat diedit" });
+  }
+
+  let bukti_foto = report[0].bukti_foto; // default: foto lama
+
+  // Hapus foto
+  if (remove_foto === "true") {
+    bukti_foto = null;
+  }
+
+  // Upload foto baru
+  if (req.file) {
+    try {
+      const fileExt = req.file.originalname.split(".").pop();
+      const fileName = `report-${req.user.id}-${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("report-images")
+        .upload(fileName, req.file.buffer, {
+          contentType: req.file.mimetype,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        return res.status(500).json({ message: "Gagal upload foto", error: uploadError.message });
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from("report-images")
+        .getPublicUrl(fileName);
+
+      bukti_foto = publicUrl;
+    } catch (err) {
+      return res.status(500).json({ message: "Kesalahan saat upload foto", error: err.message });
+    }
+  }
+
+  await db.query(
+    `UPDATE reports
+     SET title = ?, description = ?, incident_location = ?,
+         incident_date = ?, bukti_foto = ?, updated_at = NOW()
+     WHERE id = ?`,
+    [title, description, incident_location, incident_date, bukti_foto, id]
+  );
+
+  res.json({ message: "Laporan berhasil diperbarui" });
+};
+
+// USER HAPUS LAPORAN
+export const deleteMyReport = async (req, res) => {
+  const { id } = req.params;
+
+  const [report] = await db.query(
+    `SELECT * FROM reports
+     WHERE id = ? AND user_id = ?`,
+    [id, req.user.id]
+  );
+
+  if (report.length === 0) {
+    return res.status(404).json({
+      message: "Laporan tidak ditemukan",
+    });
+  }
+
+  if (report[0].status !== "pending") {
+    return res.status(403).json({
+      message: "Laporan yang sudah diproses tidak dapat dihapus",
+    });
+  }
+
+  await db.query(
+    "DELETE FROM reports WHERE id = ?",
+    [id]
+  );
+
+  res.json({
+    message: "Laporan berhasil dihapus",
+  });
+};

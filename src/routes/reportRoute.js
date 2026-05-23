@@ -12,7 +12,9 @@ import {
   updateReportStatus,
   setReportPriority,
   getCategories,
-  deleteReport
+  deleteReport,
+  updateMyReport,
+  deleteMyReport
 } from "../controllers/reportController.js";
 import { verifyToken, allowRoles } from "../middleware/auth.js";
 
@@ -83,6 +85,17 @@ router.put(
   verifyToken,
   allowRoles("superadmin"),
   setReportPriority
+);
+
+//user edit dan hapus
+
+router.put("/my/:id", verifyToken, upload.single("bukti_foto"), updateMyReport);
+
+router.delete(
+  "/my/:id",
+  verifyToken,
+  allowRoles("user"),
+  deleteMyReport
 );
 
 export default router;
