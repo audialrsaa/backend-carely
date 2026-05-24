@@ -277,24 +277,88 @@ export const updateReportStatus = async (req, res) => {
 };
 
 // ============================================================
-// PRIORITY
+// SUPERADMIN: UPDATE PRIORITAS LAPORAN
 // ============================================================
 export const setReportPriority = async (req, res) => {
   const { id } = req.params;
   const { priority } = req.body;
 
-  const valid = ["low", "medium", "high", "emergency"];
+  const validPriorities = [
+    "low",
+    "medium",
+    "high",
+    "emergency",
+  ];
 
-  if (!valid.includes(priority)) {
-    return res.status(400).json({ message: "Prioritas tidak valid" });
+  if (!validPriorities.includes(priority)) {
+    return res.status(400).json({
+      message: "Prioritas tidak valid",
+    });
   }
 
-  await db.query("UPDATE reports SET priority = ? WHERE id = ?", [
-    priority,
-    id,
-  ]);
+  // cek laporan
+  const [report] = await db.query(
+    `SELECT id, user_id, priority
+     FROM reports
+     WHERE id = ?`,
+    [id]
+  );
 
-  res.json({ message: "Prioritas berhasil diubah" });
+  if (report.length === 0) {
+    return res.status(404).json({
+      message: "Laporan tidak ditemukan",
+    });
+  }
+
+  const oldPriority = report[0].priority;
+
+  // update priority
+  await db.query(
+    `UPDATE reports
+     SET priority = ?, updated_at = NOW()
+     WHERE id = ?`,
+    [priority, id]
+  );
+
+  // log aktivitas admin
+  await db.query(
+    `INSERT INTO admin_activity_logs
+     (
+       admin_id,
+       activity_type,
+       description,
+       target_report_id
+     )
+     VALUES (?, ?, ?, ?)`,
+    [
+      req.user.id,
+      "UPDATE_PRIORITY",
+      `Prioritas laporan diubah dari ${oldPriority} menjadi ${priority}`,
+      id,
+    ]
+  );
+
+  // notifikasi ke user pelapor
+  await db.query(
+    `INSERT INTO notifications
+     (
+       user_id,
+       title,
+       message
+     )
+     VALUES (?, ?, ?)`,
+    [
+      report[0].user_id,
+      "Prioritas Laporan Diperbarui",
+      `Prioritas laporan Anda telah diubah menjadi ${priority}`,
+    ]
+  );
+
+  res.json({
+    message: "Prioritas laporan berhasil diperbarui",
+    old_priority: oldPriority,
+    new_priority: priority,
+  });
 };
 
 // ============================================================

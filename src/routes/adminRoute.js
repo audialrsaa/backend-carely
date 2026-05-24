@@ -10,7 +10,6 @@ import {
   resetAdminPassword,
   deleteUser,
   getAuditLogs,
-  getActivityLogs,
 } from "../controllers/adminController.js";
 import { verifyToken, allowRoles } from "../middleware/auth.js";
 
@@ -33,6 +32,5 @@ router.put("/admins/:id/reset-password", verifyToken, allowRoles("superadmin"), 
 
 // Logs
 router.get("/audit-logs", verifyToken, allowRoles("superadmin"), getAuditLogs);
-router.get("/activity-logs", verifyToken, allowRoles("superadmin"), getActivityLogs);
 
 export default router;

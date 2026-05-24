@@ -172,14 +172,3 @@ export const getAuditLogs = async (req, res) => {
   res.json(rows);
 };
 
-// SUPERADMIN: Activity logs
-export const getActivityLogs = async (req, res) => {
-  const [rows] = await db.query(`
-    SELECT a.*, u.full_name as admin_name
-    FROM admin_activity_logs a
-    LEFT JOIN users u ON a.admin_id = u.id
-    ORDER BY a.created_at DESC
-    LIMIT 100
-  `);
-  res.json(rows);
-};
