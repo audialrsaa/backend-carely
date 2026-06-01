@@ -1,4 +1,5 @@
 import db from "../config/db.js";
+import { createNotification } from "../utils/notification.js";
 
 // ======================================================
 // GET COMMENTS BY REPORT ID
@@ -12,7 +13,15 @@ export const getCommentsByReport = async (req, res) => {
 
     // Cek report ada
     const [[report]] = await db.query(
-      "SELECT id, user_id, status FROM reports WHERE id = ?",
+      `
+      SELECT
+        r.id,
+        r.user_id,
+        r.status,
+        r.title
+      FROM reports r
+      WHERE r.id = ?
+      `,
       [id]
     );
 
@@ -73,9 +82,23 @@ export const addComment = async (req, res) => {
 
     // Cek laporan
     const [[report]] = await db.query(
-      "SELECT id, user_id, status FROM reports WHERE id = ?",
+      `
+      SELECT
+        id,
+        user_id,
+        status,
+        title
+      FROM reports
+      WHERE id = ?
+      `,
       [id]
     );
+
+    if (!report) {
+      return res.status(404).json({
+        message: "Laporan tidak ditemukan",
+      });
+    }
 
     if (!report) {
       return res.status(404).json({ message: "Laporan tidak ditemukan" });
@@ -96,12 +119,49 @@ export const addComment = async (req, res) => {
     }
 
     await db.query(
-      `INSERT INTO report_comments 
-       (report_id, user_id, comment)
-       VALUES (?, ?, ?)`,
+      `
+      INSERT INTO report_comments
+      (
+        report_id,
+        user_id,
+        comment
+      )
+      VALUES (?, ?, ?)
+      `,
       [id, user.id, comment]
     );
 
+    // =====================================================
+    // NOTIFIKASI KOMENTAR
+    // =====================================================
+
+    // kalau yang komentar admin
+    if (user.role === "admin") {
+      await createNotification(
+        report.user_id,
+        "Komentar Baru",
+        `Admin menambahkan komentar pada laporan "${report.title}"`,
+        id
+      );
+    }
+
+    // kalau yang komentar user
+    if (user.role === "user") {
+      const [admins] = await db.query(`
+        SELECT id
+        FROM users
+        WHERE role = 'admin'
+      `);
+
+      for (const admin of admins) {
+        await createNotification(
+          admin.id,
+          "Balasan Pelapor",
+          `Pelapor menambahkan komentar pada laporan "${report.title}"`,
+          id
+        );
+      }
+    }
     res.status(201).json({
       message: "Komentar berhasil ditambahkan",
     });

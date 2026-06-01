@@ -1,5 +1,6 @@
 import db from "../config/db.js";
 import { supabase } from "../config/supabase.js";
+import { createNotification } from "../utils/notification.js";
 
 // ============================================================
 // USER: Buat laporan baru + upload foto ke Supabase
@@ -56,6 +57,22 @@ export const createReport = async (req, res) => {
      VALUES (?, NULL, 'pending', ?, 'user', 'Laporan dibuat oleh user')`,
     [result.insertId, user_id]
   );
+
+  // cari semua admin & superadmin
+  const [superadmins] = await db.query(`
+    SELECT id
+    FROM users
+    WHERE role = 'superadmin'
+  `);
+
+  for (const user of superadmins) {
+    await createNotification(
+      user.id,
+      "Laporan Baru",
+      `Laporan "${title}" menunggu penentuan prioritas`,
+      result.insertId
+    );
+  }
 
   res.status(201).json({
     message: "Laporan berhasil dibuat",
@@ -180,7 +197,20 @@ export const getReportDetail = async (req, res) => {
   );
 
   if (report.length === 0) {
-    return res.status(404).json({ message: "Laporan tidak ditemukan" });
+    return res.status(404).json({
+      message: "Laporan tidak ditemukan",
+    });
+  }
+
+  // 🔥 Admin tidak boleh buka laporan sebelum superadmin set priority
+  if (
+    req.user.role === "admin" &&
+    !report[0].priority_set
+  ) {
+    return res.status(200).json({
+      waiting_priority: true,
+      message: "Laporan belum diprioritaskan oleh superadmin",
+    });
   }
 
   const [logs] = await db.query(
@@ -215,20 +245,31 @@ export const updateReportStatus = async (req, res) => {
   const changed_by = req.user.id;
   const changer_role = req.user.role;
 
-  // 🔥 ambil data lama
+  // ambil data laporan lama
   const [current] = await db.query(
-    "SELECT status, category_id FROM reports WHERE id = ?",
+    `SELECT
+      id,
+      user_id,
+      title,
+      status,
+      category_id
+    FROM reports
+    WHERE id = ?`,
     [id]
   );
 
   if (current.length === 0) {
-    return res.status(404).json({ message: "Laporan tidak ditemukan" });
+    return res.status(404).json({
+      message: "Laporan tidak ditemukan",
+    });
   }
 
-  const old_status = current[0].status;
-  const old_category = current[0].category_id;
+  const report = current[0];
 
-  // update query
+  const old_status = report.status;
+  const old_category = report.category_id;
+
+  // update laporan
   let updateQuery =
     "UPDATE reports SET status = ?, updated_at = NOW()";
 
@@ -241,7 +282,8 @@ export const updateReportStatus = async (req, res) => {
     updateParams.push(category_id);
 
     if (category_id !== old_category) {
-      categoryChangedText = ` | kategori berubah dari ${old_category} → ${category_id}`;
+      categoryChangedText =
+        ` | kategori berubah dari ${old_category} → ${category_id}`;
     }
   }
 
@@ -260,15 +302,59 @@ export const updateReportStatus = async (req, res) => {
 
   await db.query(updateQuery, updateParams);
 
-  // 🔥 LOG STATUS + CATEGORY
+  // simpan log perubahan
   const finalNotes =
     (notes || "") + categoryChangedText || null;
 
   await db.query(
     `INSERT INTO report_status_logs
-     (report_id, old_status, new_status, changed_by, changer_role, notes)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, old_status, new_status, changed_by, changer_role, finalNotes]
+    (
+      report_id,
+      old_status,
+      new_status,
+      changed_by,
+      changer_role,
+      notes
+    )
+    VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      old_status,
+      new_status,
+      changed_by,
+      changer_role,
+      finalNotes,
+    ]
+  );
+
+  // ==========================
+  // NOTIFIKASI KE PELAPOR
+  // ==========================
+
+  let notifTitle = "Update Laporan";
+  let notifMessage = "";
+
+  if (new_status === "rejected") {
+    notifTitle = "Laporan Ditolak";
+
+    notifMessage =
+      rejection_reason ||
+      `Laporan "${report.title}" ditolak oleh admin`;
+  } else {
+    notifMessage =
+      `Laporan "${report.title}" sekarang berstatus ${new_status}`;
+  }
+
+  // tampilkan isi catatan admin di notif
+  if (admin_notes?.trim()) {
+    notifMessage += ` Catatan: "${admin_notes}"`;
+  }
+
+  await createNotification(
+    report.user_id,
+    notifTitle,
+    notifMessage,
+    id
   );
 
   res.json({
@@ -315,44 +401,53 @@ export const setReportPriority = async (req, res) => {
   // update priority
   await db.query(
     `UPDATE reports
-     SET priority = ?, updated_at = NOW()
-     WHERE id = ?`,
+    SET priority = ?,
+        priority_set = TRUE,
+        updated_at = NOW()
+    WHERE id = ?`,
     [priority, id]
   );
 
   // log aktivitas admin
-  await db.query(
-    `INSERT INTO admin_activity_logs
-     (
-       admin_id,
-       activity_type,
-       description,
-       target_report_id
-     )
-     VALUES (?, ?, ?, ?)`,
-    [
-      req.user.id,
-      "UPDATE_PRIORITY",
-      `Prioritas laporan diubah dari ${oldPriority} menjadi ${priority}`,
-      id,
-    ]
-  );
+  // await db.query(
+  //   `INSERT INTO admin_activity_logs
+  //    (
+  //      admin_id,
+  //      activity_type,
+  //      description,
+  //      target_report_id
+  //    )
+  //    VALUES (?, ?, ?, ?)`,
+  //   [
+  //     req.user.id,
+  //     "UPDATE_PRIORITY",
+  //     `Prioritas laporan diubah dari ${oldPriority} menjadi ${priority}`,
+  //     id,
+  //   ]
+  // );
 
   // notifikasi ke user pelapor
-  await db.query(
-    `INSERT INTO notifications
-     (
-       user_id,
-       title,
-       message
-     )
-     VALUES (?, ?, ?)`,
-    [
-      report[0].user_id,
-      "Prioritas Laporan Diperbarui",
-      `Prioritas laporan Anda telah diubah menjadi ${priority}`,
-    ]
+  await createNotification(
+    report[0].user_id,
+    "Prioritas Laporan Diperbarui",
+    `Prioritas laporan Anda diubah menjadi ${priority}`,
+    id
   );
+
+  const [admins] = await db.query(`
+    SELECT id
+    FROM users
+    WHERE role = 'admin'
+  `);
+
+  for (const admin of admins) {
+    await createNotification(
+      admin.id,
+      "Laporan Siap Diproses",
+      `Laporan #${id} telah diprioritaskan menjadi ${priority}`,
+      id
+);
+  }
 
   res.json({
     message: "Prioritas laporan berhasil diperbarui",
