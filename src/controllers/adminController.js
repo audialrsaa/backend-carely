@@ -1,22 +1,50 @@
 import db from "../config/db.js";
 import bcrypt from "bcryptjs";
 
-// SUPERADMIN: Dashboard stats lengkap
+//SUPERADMIN
 export const getDashboardStats = async (req, res) => {
-  const [[totalUsers]] = await db.query("SELECT COUNT(*) as total FROM users WHERE role = 'user'");
-  const [[totalAdmins]] = await db.query("SELECT COUNT(*) as total FROM users WHERE role = 'admin'");
-  const [[totalReports]] = await db.query("SELECT COUNT(*) as total FROM reports");
+
+  // hitung jumlah seluruh user
+  const [[totalUsers]] = await db.query(
+    "SELECT COUNT(*) as total FROM users WHERE role = 'user'"
+  );
+
+  // hitung jumlah seluruh admin
+  const [[totalAdmins]] = await db.query(
+    "SELECT COUNT(*) as total FROM users WHERE role = 'admin'"
+  );
+
+  // hitung jumlah seluruh laporan
+  const [[totalReports]] = await db.query(
+    "SELECT COUNT(*) as total FROM reports"
+  );
+
+  // hitung jumlah laporan yang dibuat hari ini
   const [[todayReports]] = await db.query(
     "SELECT COUNT(*) as total FROM reports WHERE DATE(created_at) = CURDATE()"
   );
+
+  // hitung jumlah laporan prioritas darurat yang belum selesai
   const [[emergencyReports]] = await db.query(
     "SELECT COUNT(*) as total FROM reports WHERE priority = 'emergency' AND status NOT IN ('selesai','rejected')"
   );
 
-  const [statusSummary] = await db.query("SELECT * FROM report_status_summary");
-  const [categorySummary] = await db.query("SELECT * FROM report_category_summary");
-  const [prioritySummary] = await db.query("SELECT * FROM report_priority_summary");
+  // ambil ringkasan laporan berdasarkan status
+  const [statusSummary] = await db.query(
+    "SELECT * FROM report_status_summary"
+  );
 
+  // ambil ringkasan laporan berdasarkan kategori
+  const [categorySummary] = await db.query(
+    "SELECT * FROM report_category_summary"
+  );
+
+  // ambil ringkasan laporan berdasarkan prioritas
+  const [prioritySummary] = await db.query(
+    "SELECT * FROM report_priority_summary"
+  );
+
+  // kirim seluruh data statistik ke frontend
   res.json({
     total_users: totalUsers.total,
     total_admins: totalAdmins.total,
@@ -29,16 +57,35 @@ export const getDashboardStats = async (req, res) => {
   });
 };
 
-// ADMIN: Dashboard stats terbatas
+//ADMIN
 export const getAdminDashboard = async (req, res) => {
+
+  // hitung jumlah laporan hari ini
   const [[todayReports]] = await db.query(
     "SELECT COUNT(*) as total FROM reports WHERE DATE(created_at) = CURDATE()"
   );
-  const [[totalReports]] = await db.query("SELECT COUNT(*) as total FROM reports");
-  const [statusSummary] = await db.query("SELECT * FROM report_status_summary");
-  const [categorySummary] = await db.query("SELECT * FROM report_category_summary");
-  const [prioritySummary] = await db.query("SELECT * FROM report_priority_summary");
 
+  // hitun jumlah seluruh laporan
+  const [[totalReports]] = await db.query(
+    "SELECT COUNT(*) as total FROM reports"
+  );
+
+  // ambil ringkasan status laporan
+  const [statusSummary] = await db.query(
+    "SELECT * FROM report_status_summary"
+  );
+
+  // ambil ringkasan kategori laporan
+  const [categorySummary] = await db.query(
+    "SELECT * FROM report_category_summary"
+  );
+
+  // ambil ringkasan prioritas laporan
+  const [prioritySummary] = await db.query(
+    "SELECT * FROM report_priority_summary"
+  );
+
+  // kirim data dashboard admin
   res.json({
     total_reports: totalReports.total,
     today_reports: todayReports.total,
@@ -48,30 +95,40 @@ export const getAdminDashboard = async (req, res) => {
   });
 };
 
-// SUPERADMIN: Lihat semua user
+// superadmin : tampilin all user
 export const getAllUsers = async (req, res) => {
+
+  // ambil data user dan mengurutkan dari terbaru
   const [rows] = await db.query(
     "SELECT id, full_name, email, phone, role, created_at FROM users WHERE role = 'user' ORDER BY created_at DESC"
   );
+
+  // kirim data user ke frontend
   res.json(rows);
 };
 
-// SUPERADMIN: Lihat semua admin
+// superadmin: tampil all admin
 export const getAllAdmins = async (req, res) => {
+
+  // ambi data admin dan mengurutkan dari terbaru
   const [rows] = await db.query(
     "SELECT id, full_name, email, phone, role, created_at FROM users WHERE role = 'admin' ORDER BY created_at DESC"
   );
+
+  // ngirim data admin ke frontend
   res.json(rows);
 };
 
-// SUPERADMIN: Buat admin baru
+// superadmin : create admin
 export const createAdmin = async (req, res) => {
   try {
+
+    // ambil data dari request body
     const { full_name, email, password, phone } = req.body;
 
-    // VALIDASI
+    // validasi field wajib
     if (
-      !full_name?.trim() ||
+      !full_name?.trim() || //trims hapus spasi di awal string dan akhir " "
       !email?.trim() ||
       !password?.trim()
     ) {
@@ -80,22 +137,26 @@ export const createAdmin = async (req, res) => {
       });
     }
 
+    // cek email sudah digunakan
     const [existing] = await db.query(
       "SELECT id FROM users WHERE email = ?",
       [email]
     );
 
+    // kalau email sudah ada maka batalkan proses
     if (existing.length > 0) {
       return res.status(400).json({
         message: "Email sudah digunakan",
       });
     }
 
+    // enkrip hash password sebelum disimpan
     const hashed = await bcrypt.hash(password, 10);
 
+    // simpan admin baru ke database
     await db.query(
-      `INSERT INTO users 
-      (full_name, email, password, phone, role) 
+      `INSERT INTO users
+      (full_name, email, password, phone, role)
       VALUES (?, ?, ?, ?, ?)`,
       [
         full_name,
@@ -106,58 +167,65 @@ export const createAdmin = async (req, res) => {
       ]
     );
 
+    // kirim pesan sukses
     res.status(201).json({
       message: "Admin berhasil dibuat",
     });
+
   } catch (err) {
+
+    // tampilin error di console
     console.error(err);
 
+    // kirim response server error
     res.status(500).json({
       message: "Server error",
     });
   }
 };
 
-// SUPERADMIN: Edit admin
-export const updateAdmin = async (req, res) => {
-  const { id } = req.params;
-  const { full_name, phone } = req.body;
+// superadmin : hapus admin
+export const deleteAdmin = async (req, res) => {
 
+  // ambil ID admin
+  const { id } = req.params;
+
+  // jjapus admin dari database
   await db.query(
-    "UPDATE users SET full_name = ?, phone = ? WHERE id = ? AND role = 'admin'",
-    [full_name, phone, id]
+    "DELETE FROM users WHERE id = ? AND role = 'admin'",
+    [id]
   );
 
-  res.json({ message: "Data admin berhasil diupdate" });
+  // kirim pesan sukses
+  res.json({
+    message: "Admin berhasil dihapus",
+  });
 };
 
-// SUPERADMIN: Hapus admin
-export const deleteAdmin = async (req, res) => {
-  const { id } = req.params;
-  await db.query("DELETE FROM users WHERE id = ? AND role = 'admin'", [id]);
-  res.json({ message: "Admin berhasil dihapus" });
-};
 
-// SUPERADMIN: Reset password admin
-export const resetAdminPassword = async (req, res) => {
-  const { id } = req.params;
-  const { new_password } = req.body;
-
-  const hashed = await bcrypt.hash(new_password, 10);
-  await db.query("UPDATE users SET password = ? WHERE id = ? AND role = 'admin'", [hashed, id]);
-
-  res.json({ message: "Password admin berhasil direset" });
-};
-
-// SUPERADMIN: Hapus user
+// superadmin : hapus user
 export const deleteUser = async (req, res) => {
+
+  // ambil ID user
   const { id } = req.params;
-  await db.query("DELETE FROM users WHERE id = ? AND role = 'user'", [id]);
-  res.json({ message: "User berhasil dihapus" });
+
+  // haous user dari database
+  await db.query(
+    "DELETE FROM users WHERE id = ? AND role = 'user'",
+    [id]
+  );
+
+  // kirim pesan sukses
+  res.json({
+    message: "User berhasil dihapus",
+  });
 };
 
-// SUPERADMIN: Audit log
+// superadmin : log act
 export const getAuditLogs = async (req, res) => {
+
+  // ambil riwayat perubahan status laporan
+  // beserta informasi laporan dan pengguna yang melakukan perubahan
   const [rows] = await db.query(`
     SELECT l.*,
            r.title as report_title,
@@ -169,6 +237,7 @@ export const getAuditLogs = async (req, res) => {
     ORDER BY l.created_at DESC
     LIMIT 100
   `);
+
+  // kirim data audit log ke frontend
   res.json(rows);
 };
-

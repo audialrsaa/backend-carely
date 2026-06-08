@@ -5,9 +5,7 @@ import {
   getAllUsers,
   getAllAdmins,
   createAdmin,
-  updateAdmin,
   deleteAdmin,
-  resetAdminPassword,
   deleteUser,
   getAuditLogs,
 } from "../controllers/adminController.js";
@@ -26,9 +24,7 @@ router.delete("/users/:id", verifyToken, allowRoles("superadmin"), deleteUser);
 // Admin management
 router.get("/admins", verifyToken, allowRoles("superadmin"), getAllAdmins);
 router.post("/admins", verifyToken, allowRoles("superadmin"), createAdmin);
-router.put("/admins/:id", verifyToken, allowRoles("superadmin"), updateAdmin);
 router.delete("/admins/:id", verifyToken, allowRoles("superadmin"), deleteAdmin);
-router.put("/admins/:id/reset-password", verifyToken, allowRoles("superadmin"), resetAdminPassword);
 
 // Logs
 router.get("/audit-logs", verifyToken, allowRoles("superadmin"), getAuditLogs);

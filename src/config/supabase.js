@@ -1,6 +1,3 @@
-// src/config/supabase.js
-// BUAT FILE INI / GANTI ISINYA BIAR EXPORT NYA BENAR
-
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.SUPABASE_URL;

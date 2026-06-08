@@ -1,17 +1,16 @@
 import db from "../config/db.js";
 import { createNotification } from "../utils/notification.js";
 
-// ======================================================
-// GET COMMENTS BY REPORT ID
-// User: hanya laporan sendiri
-// Admin/Superadmin: bebas lihat
-// ======================================================
+// get comment by report-id
 export const getCommentsByReport = async (req, res) => {
   try {
+    // ambil ID laporan dari parameter URL
     const { id } = req.params;
+
+    // ambil data user yang sedang login
     const user = req.user;
 
-    // Cek report ada
+    // cek apakah laporan yang diminta ada
     const [[report]] = await db.query(
       `
       SELECT
@@ -25,17 +24,25 @@ export const getCommentsByReport = async (req, res) => {
       [id]
     );
 
+    // kalau laporan tidak ditemukan
     if (!report) {
-      return res.status(404).json({ message: "Laporan tidak ditemukan" });
+      return res.status(404).json({
+        message: "Laporan tidak ditemukan"
+      });
     }
 
-    // User hanya boleh lihat laporan miliknya
+    // user biasa hanya boleh melihat komentar
+    // pada laporan miliknya sendiri
     if (user.role === "user" && report.user_id !== user.id) {
-      return res.status(403).json({ message: "Akses ditolak" });
+      return res.status(403).json({
+        message: "Akses ditolak"
+      });
     }
 
+    // ambil seluruh komentar pada laporan
+    // beserta data pembuat komentar
     const [comments] = await db.query(
-      `SELECT 
+      `SELECT
           rc.id,
           rc.comment,
           rc.created_at,
@@ -50,37 +57,50 @@ export const getCommentsByReport = async (req, res) => {
       [id]
     );
 
+    // kirim daftar komentar ke frontend
     res.json(comments);
+
   } catch (error) {
+
+    // tampilin error ke console
     console.error("Get Comments Error:", error);
-    res.status(500).json({ message: "Server error" });
+
+    // kirim response server error
+    res.status(500).json({
+      message: "Server error"
+    });
   }
 };
 
-// ======================================================
-// ADD COMMENT
-// User: hanya laporan sendiri + laporan belum selesai/rejected
-// Admin: bebas
-// Superadmin: tidak boleh
-// ======================================================
+// tambah comment
 export const addComment = async (req, res) => {
   try {
+
+    // ambil ID laporan
     const { id } = req.params;
+
+    // ambil isi komentar dari request body
     const { comment } = req.body;
+
+    // ambil data user yang sedang login
     const user = req.user;
 
+    // pastiin komentar tidak kosong
     if (!comment || !comment.trim()) {
-      return res.status(400).json({ message: "Komentar wajib diisi" });
+      return res.status(400).json({
+        message: "Komentar wajib diisi"
+      });
     }
 
-    // Superadmin tidak boleh komentar
+    // superadmin cuma boleh melihat komentar
+    // dan ga boleh menambahkan komentar
     if (user.role === "superadmin") {
       return res.status(403).json({
         message: "Superadmin hanya dapat melihat komentar",
       });
     }
 
-    // Cek laporan
+    // cek apakah laporan ada
     const [[report]] = await db.query(
       `
       SELECT
@@ -94,23 +114,25 @@ export const addComment = async (req, res) => {
       [id]
     );
 
+    // kalau laporan tidak ditemukan
     if (!report) {
       return res.status(404).json({
         message: "Laporan tidak ditemukan",
       });
     }
 
-    if (!report) {
-      return res.status(404).json({ message: "Laporan tidak ditemukan" });
-    }
-
-    // User hanya boleh komentar di laporan miliknya
+    // user biasa hanya boleh memberi komentar
+    // pada laporan miliknya sendiri
     if (user.role === "user") {
+
       if (report.user_id !== user.id) {
-        return res.status(403).json({ message: "Akses ditolak" });
+        return res.status(403).json({
+          message: "Akses ditolak"
+        });
       }
 
-      // User tidak bisa komentar jika laporan selesai / rejected
+      // user tidak dapat berkomentar jika
+      // laporan sudah selesai atau ditolak
       if (["selesai", "rejected"].includes(report.status)) {
         return res.status(403).json({
           message: "Komentar ditutup untuk laporan ini",
@@ -118,6 +140,7 @@ export const addComment = async (req, res) => {
       }
     }
 
+    // simpan komentar ke database
     await db.query(
       `
       INSERT INTO report_comments
@@ -131,12 +154,12 @@ export const addComment = async (req, res) => {
       [id, user.id, comment]
     );
 
-    // =====================================================
-    // NOTIFIKASI KOMENTAR
-    // =====================================================
+    // notif setelah komentar ditambah
 
-    // kalau yang komentar admin
+    // kalau komentar dibuat oleh admin
+    // kirim notifikasi ke pelapor
     if (user.role === "admin") {
+
       await createNotification(
         report.user_id,
         "Komentar Baru",
@@ -145,8 +168,10 @@ export const addComment = async (req, res) => {
       );
     }
 
-    // kalau yang komentar user
+    // kalau komentar dibuat oleh pelapor/user
+    // kirim notifikasi ke seluruh admin
     if (user.role === "user") {
+
       const [admins] = await db.query(`
         SELECT id
         FROM users
@@ -154,6 +179,7 @@ export const addComment = async (req, res) => {
       `);
 
       for (const admin of admins) {
+
         await createNotification(
           admin.id,
           "Balasan Pelapor",
@@ -162,11 +188,20 @@ export const addComment = async (req, res) => {
         );
       }
     }
+
+    // kirim response berhasil
     res.status(201).json({
       message: "Komentar berhasil ditambahkan",
     });
+
   } catch (error) {
+
+    // tampilin error ke console
     console.error("Add Comment Error:", error);
-    res.status(500).json({ message: "Server error" });
+
+    // kirim response server error
+    res.status(500).json({
+      message: "Server error"
+    });
   }
 };
